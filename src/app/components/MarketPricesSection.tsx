@@ -1,0 +1,91 @@
+import { useState } from 'react';
+import { translations, Language } from '../lib/translations';
+import { FarmProfile, getMarketPricesAdvice } from '../lib/api';
+import { toast } from 'sonner';
+import { AIResponse } from './AIResponse';
+import { LoadingSpinner } from './LoadingSpinner';
+
+interface MarketPricesSectionProps {
+  currentLanguage: Language;
+  farmProfile: FarmProfile;
+  onBack: () => void;
+}
+
+export function MarketPricesSection({
+  currentLanguage,
+  farmProfile,
+  onBack,
+}: MarketPricesSectionProps) {
+  const t = translations[currentLanguage];
+  const [crop, setCrop] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [marketInfo, setMarketInfo] = useState('');
+
+  const handleGetPrices = async () => {
+    if (!crop.trim()) {
+      toast.error('Please enter a crop name');
+      return;
+    }
+
+    setLoading(true);
+    setMarketInfo('');
+
+    try {
+      const response = await getMarketPricesAdvice(crop, farmProfile);
+      setMarketInfo(response);
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : 'Failed to get market prices'
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="animate-slideIn">
+      <div className="bg-white p-6 rounded-2xl mb-6 shadow-md flex items-center gap-4">
+        <button
+          onClick={onBack}
+          className="bg-[#2d5016] text-white px-6 py-3 rounded-xl font-semibold hover:bg-[#1a3009] transition-all hover:-translate-x-1"
+        >
+          ← {t.backBtn}
+        </button>
+        <h2 className="text-3xl font-bold text-[#2d5016]">
+          {t.marketTitle}
+        </h2>
+      </div>
+
+      <div className="bg-white p-8 rounded-2xl shadow-md mb-6">
+        <div className="mb-6">
+          <label className="block font-semibold mb-2 text-gray-800">
+            {t.labelMarketCrop}
+          </label>
+          <input
+            type="text"
+            value={crop}
+            onChange={(e) => setCrop(e.target.value)}
+            placeholder="e.g., Rice, Wheat, Cotton"
+            className="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:border-[#2d5016] focus:outline-none focus:ring-2 focus:ring-[#2d5016]/20 transition-all"
+          />
+        </div>
+        <button
+          onClick={handleGetPrices}
+          disabled={loading}
+          className="w-full bg-gradient-to-r from-[#2d5016] to-[#4a7c2c] text-white px-8 py-4 rounded-xl text-xl font-semibold shadow-lg hover:-translate-y-1 hover:shadow-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          💰 {t.getCurrentPricesBtn}
+        </button>
+      </div>
+
+      {loading && <LoadingSpinner message={t.fetchingPrices} />}
+
+      {marketInfo && (
+        <AIResponse
+          title="💰 Market Analysis & Selling Advice"
+          content={marketInfo}
+        />
+      )}
+    </div>
+  );
+}
