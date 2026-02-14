@@ -9,15 +9,17 @@ interface CropCareSectionProps {
   currentLanguage: Language;
   farmProfile: FarmProfile;
   onBack: () => void;
+  initialQuery?: string;
 }
 
 export function CropCareSection({
   currentLanguage,
   farmProfile,
   onBack,
+  initialQuery,
 }: CropCareSectionProps) {
   const t = translations[currentLanguage];
-  const [question, setQuestion] = useState('');
+  const [question, setQuestion] = useState(initialQuery || '');
   const [loading, setLoading] = useState(false);
   const [advice, setAdvice] = useState('');
 

@@ -1,3 +1,44 @@
+const LMSTUDIO_BASE = "https://wage-secretariat-mats-common.trycloudflare.com";
+
+async function askLocalModel(prompt: string, imageBase64?: string): Promise<string> {
+  const body: any = {
+    model: "qwen/qwen3-vl-4b",
+    messages: [
+      {
+        role: "user",
+        content: imageBase64
+          ? [
+              { type: "text", text: prompt },
+              {
+                type: "image_url",
+                image_url: { url: `data:image/jpeg;base64,${imageBase64}` },
+              },
+            ]
+          : prompt,
+      },
+    ],
+    temperature: 0.7,
+    max_tokens: 800,
+  };
+
+  const res = await fetch(`${LMSTUDIO_BASE}/v1/chat/completions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const t = await res.text();
+    console.error("LM Studio error:", t);
+    throw new Error("Local model request failed");
+  }
+
+  const data = await res.json();
+  return data.choices?.[0]?.message?.content || "No response from model";
+}
+
+/* ---------------- Types ---------------- */
+
 export interface FarmProfile {
   name: string;
   location: string;
@@ -5,8 +46,6 @@ export interface FarmProfile {
   soilType: string;
   currentCrops: string;
   irrigation: string;
-  latitude?: number;
-  longitude?: number;
 }
 
 export interface WeatherData {
@@ -17,126 +56,122 @@ export interface WeatherData {
   rainfall: number;
 }
 
-export const fileToBase64 = async (): Promise<string> => "";
+/* ---------------- Utilities ---------------- */
 
-// ===== SMART RESPONSE ENGINE =====
+export const fileToBase64 = (file: File): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve((reader.result as string).split(",")[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
 
-function randomItem<T>(arr: T[]): T {
-  return arr[Math.floor(Math.random() * arr.length)];
+/* ---------------- Crop Advice ---------------- */
+
+export async function getCropAdvice(
+  question: string,
+  farmProfile: FarmProfile,
+  language: string
+)
+ {
+  const prompt = `
+You are an expert agricultural advisor helping an Indian farmer.
+
+Location: ${farmProfile.location}
+Language: ${language}
+
+Question: ${question}
+
+Give clear practical advice.
+`;
+  return askLocalModel(prompt);
 }
 
-// Context-aware crop advice
-export const getCropAdvice = async (
-  question: string,
-  farmProfile: FarmProfile
-): Promise<string> => {
-  const q = question.toLowerCase();
+/* ---------------- Disease Analysis ---------------- */
 
-  if (q.includes("water") || q.includes("irrigation")) {
-    return `For ${farmProfile.currentCrops || "your crops"}, irrigation should depend on soil moisture rather than fixed schedules. 
-Check soil at root depth — if dry, irrigate lightly. Overwatering reduces oxygen and harms roots.`;
-  }
-
-  if (q.includes("fertilizer") || q.includes("nutrient")) {
-    return `Given your ${farmProfile.soilType || "soil"} conditions, prioritize balanced NPK application. 
-Avoid excess nitrogen — it promotes leafy growth but weakens plant resilience. Consider split dosing.`;
-  }
-
-  if (q.includes("yield") || q.includes("production")) {
-    return `Improving yield typically involves optimizing spacing, nutrient timing, and early stress detection. 
-Ensure consistent irrigation and monitor leaves for discoloration or curling.`;
-  }
-
-  return randomItem([
-    "Maintain regular field observation — early detection prevents major losses.",
-    "Healthy soil structure is more valuable than aggressive chemical inputs.",
-    "Stability in irrigation and nutrients usually beats drastic interventions.",
-  ]);
-};
-
-// Context-aware disease analysis
-export const analyzeDisease = async (
+export async function analyzeDisease(
   cropType: string,
-  symptoms: string
-): Promise<string> => {
-  const s = symptoms.toLowerCase();
+  symptoms: string,
+  farmProfile: FarmProfile,
+  imageBase64?: string
+) {
+  const prompt = `
+You are a plant disease expert helping an Indian farmer.
 
-  if (s.includes("yellow")) {
-    return `Yellowing often indicates nutrient imbalance or root stress. 
-Inspect lower leaves first. Check nitrogen levels and drainage conditions.`;
-  }
+Crop: ${cropType}
+Symptoms: ${symptoms}
+Location: ${farmProfile.location}
 
-  if (s.includes("spots") || s.includes("patch")) {
-    return `Leaf spots commonly relate to fungal pathogens. 
-Remove affected leaves, reduce moisture retention, and consider preventive fungicide.`;
-  }
+If an image is provided, analyze it carefully.
 
-  if (s.includes("wilting")) {
-    return `Wilting with adequate soil moisture suggests vascular or root issues. 
-Check for root rot, pests, or stem damage.`;
-  }
+Provide:
+- Likely disease
+- Confidence
+- Treatment
+- Prevention
+`;
 
-  return "Symptoms suggest possible stress or early infection. Field inspection recommended for confirmation.";
-};
+  return askLocalModel(prompt, imageBase64);
+}
 
-// Weather-based advisory (dynamic feel)
-export const getWeatherAdvice = async (
+/* ---------------- Weather Advice ---------------- */
+
+export async function getWeatherAdvice(
   weatherData: WeatherData,
   farmProfile: FarmProfile
-): Promise<string> => {
-  if (weatherData.temp > 32) {
-    return "High temperature detected. Increase irrigation monitoring and avoid midday fertilizer application.";
-  }
+) {
+  const prompt = `
+Weather:
+Temp: ${weatherData.temp}
+Condition: ${weatherData.condition}
 
-  if (weatherData.rainfall > 5) {
-    return "Rainfall expected. Delay irrigation and monitor fungal disease risks.";
-  }
+Give farming advice.
+`;
 
-  return `Conditions appear stable for ${farmProfile.currentCrops || "current crops"}. 
-Proceed with routine field activities and pest monitoring.`;
-};
+  return askLocalModel(prompt);
+}
+/* ---------------- Market Advice ---------------- */
 
-// Market guidance (believable demo logic)
-export const getMarketPricesAdvice = async (crop: string): Promise<string> => {
-  return `Market outlook for ${crop}:
+export async function getMarketPricesAdvice(
+  crop: string,
+ farmProfile: FarmProfile
+) {
+  const prompt = `
+You are an Indian agricultural market advisor.
 
-Estimated price band: ₹2100 – ₹2300 per quintal  
-Trend: Stable  
-Advice: Evaluate storage vs immediate sale depending on liquidity needs.`;
-};
+Crop: ${crop}
+Location: ${farmProfile.location}
 
-// Government schemes (credible & safe)
-export const getGovernmentSchemes = async (
-  farmProfile: FarmProfile
-): Promise<string> => {
-  return `Relevant schemes for farmers in ${farmProfile.location || "India"}:
+Provide realistic pricing guidance in INR.
+Give practical selling advice.
+`;
 
-• PM-KISAN – Income support scheme  
-• Soil Health Card – Soil nutrient assessment  
-• PMFBY – Crop insurance coverage  
+  return askLocalModel(prompt);
+}
+/* ---------------- Government Schemes ---------------- */
 
-Visit nearest agriculture office for eligibility verification.`;
-};
+export async function getGovernmentSchemes(farmProfile: FarmProfile) {
+  const prompt = `
+You are an expert on Indian agricultural government schemes.
 
-// Stable demo weather provider
-export const fetchWeatherData = async (): Promise<WeatherData> => {
+Farmer Location: ${farmProfile.location}
+Farm Size: ${farmProfile.farmSize}
+
+List relevant schemes, subsidies, and benefits.
+Keep it practical and realistic.
+`;
+
+  return askLocalModel(prompt);
+}
+
+/* ---------------- Mock Weather ---------------- */
+
+export async function fetchWeatherData(): Promise<WeatherData> {
   return {
-    temp: randomItem([26, 28, 31, 34]),
-    condition: randomItem(["Clear", "Partly Cloudy", "Cloudy"]),
-    humidity: randomItem([55, 65, 72]),
-    windSpeed: randomItem([6, 10, 14]),
-    rainfall: randomItem([0, 2, 8]),
+    temp: 28,
+    condition: "Partly Cloudy",
+    humidity: 65,
+    windSpeed: 12,
+    rainfall: 0,
   };
-};
-
-// Stable demo market provider
-export const fetchMarketPrices = async (): Promise<any> => {
-  return {
-    price: randomItem([
-      "₹2050 – ₹2250 per quintal",
-      "₹2100 – ₹2300 per quintal",
-      "₹1980 – ₹2180 per quintal",
-    ]),
-    trend: randomItem(["Stable", "Slight Increase", "Moderate Demand"]),
-  };
-};
+}
